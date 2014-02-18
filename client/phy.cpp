@@ -1,0 +1,272 @@
+#include "header.h"
+#include <bitset>
+
+#define BUFFER_SIZE 256
+
+void verbose(string message){
+    if(vb_mode)
+        cout<<message<<endl;
+}
+
+/*supporting function*/
+
+void *phy_layer_t(void *num);
+int get_crc(string str);
+string frame_to_bit(string input);
+void trouble(char *);
+void deal_with_reading(string &input);
+string bytestuff(string input);
+string destuff(string input);
+
+
+/*gloal variables*/
+int alive=1;
+int connected=1;
+int socketfd;
+
+/*implementation of functions*/
+
+string bytestuff(string input){
+    
+    string to_send;
+    string begin="~";
+    /*the represent of ox7e in string format*/
+    string begin_stuff="~^";
+    string middle_stuff="}3";
+    to_send+=begin;
+    
+    
+    for(int i=0;i<input.size();++i){
+        if(input[i]=='}'){
+            to_send+=middle_stuff;
+        }
+        else
+            if(input[i]=='~'){
+                to_send+=begin_stuff;
+                
+            }
+            else {
+                to_send+=input[i];
+            }
+    }
+    
+    to_send+=begin;
+    
+    
+    return to_send;
+}
+
+string destuff(string input){
+    string to_send;
+    for (int i=0;i<input.size();++i){
+        
+        if((i==0)or(i==input.size()-1)){
+            
+        }
+        else{
+            if((input[i]=='~')and (input[i+1]=='^'))
+            {
+                to_send+='~';
+                i+=1;
+            }
+            else{
+                if((input[i]=='}')and (input[i+1]=='3')){
+                    to_send+='}';
+                    i+=1;
+                }
+                else{
+                    to_send+=input[i];
+                }
+            }
+            
+        }
+        
+    }
+    
+    return to_send;
+}
+
+
+int get_crc(string str){
+    bitset<8> mybits=0;
+    bitset<8> crc=0;
+    for (int i=0;i<str.size();i++){
+        mybits=bitset<8>(str[i]);
+		crc= crc ^ mybits;
+    }
+    int g=(int) crc[0];
+	return g;
+}
+
+
+string frame_to_bit(string input){
+    string to_send;
+    char crc_s[5];
+    int crc=get_crc(input);
+    sprintf(crc_s,"%d",crc);
+    to_send=input;
+    to_send.append(crc_s);
+    to_send=bytestuff(to_send);/*stuff*/
+    to_send.append("\b");
+    return to_send;
+}
+
+void trouble(char * input){
+    if(probability==0){
+        return;
+    }
+    int random=rand()%10+1;
+    if(random<probability)
+    {
+        int position=rand()%(strlen(input)-4)+4;
+        input[position-1]=input[position-1]++;
+        verbose("error introduced (PHY)");
+    }
+    string errorous=string(input);
+    errorous=errorous.substr(0,errorous.length()-1);
+    verbose("change one is"+errorous);
+}
+
+
+void deal_with_reading(string &input){
+    char inbuff[255];
+    strcpy(inbuff,input.c_str());
+    input="";
+    verbose("full message:"+string(inbuff)+"| readig (PHY)");
+    string temp;
+    
+    for(int p=0;p<strlen(inbuff);p++){
+        if(inbuff[p]=='\b')
+        {
+            char * pch;
+            char crc_c[2];
+            int crc;
+            verbose("before destuff:"+temp);
+            temp=destuff(temp);
+            verbose("after destuff"+temp);
+            pch=new char [temp.size()+1];
+            
+            /*@destuff*/
+            
+            strcpy(pch,temp.c_str());
+            
+            crc_c[0]=pch[strlen(pch)-1];
+            crc_c[1]='\0';
+            crc=atoi(crc_c);
+            /*get the crc in bit stream*/
+            pch[strlen(pch)-1]='\0'; // build string
+            if(get_crc(pch)==crc){
+            }
+            else{
+                verbose("crc check failed(PHY)");
+                verbose("corrupted message"+string(pch)+"|phy");
+                pch=strtok(NULL,"\b");
+                continue;
+            }
+            pthread_mutex_lock( &mutex_phy_receive );
+            phy_receive_q.push(pch);
+            pthread_mutex_unlock( &mutex_phy_receive );
+            temp.clear();
+            
+        }
+        else{
+            temp=temp+inbuff[p];
+        }
+    }
+}
+
+
+void *phy_layer_t(void *num)
+{
+    /*initiation*/
+    fd_set read_flags,write_flags;
+    struct timeval waitd;
+    int thefd;
+    /* for trasmission */
+    string temp;
+    char outbuff[256];
+    char inbuff[256];
+    
+    /*stastic usage*/
+    
+    memset(&outbuff,0,sizeof(outbuff));
+    /*build conncetion*/
+    thefd=phy_setup(PORT, gethostbyname(HOSTNAME));
+    if(thefd==-1){
+        cout<<"could not connect to server(PHY_set_up)"<<endl;
+        exit(0);
+    }
+    int x;
+    x=fcntl(thefd, F_GETFL,0);
+    fcntl(thefd,F_SETFL,x| O_NONBLOCK);
+    connected=0;
+    verbose("socket setup(PHY)");
+    /*inform the data link layer,conncection build!*/
+    
+    
+    string previous="";
+    int err;
+    while(1)
+    {
+        
+        FD_ZERO(&read_flags);
+        FD_ZERO(&write_flags);
+        FD_SET(thefd, &read_flags);
+        /*updating control flags to get access resource*/
+        if(!phy_send_q.empty()) FD_SET(thefd, &write_flags);
+        err=select(thefd+1, &read_flags,&write_flags,
+                   (fd_set*)0,&waitd);
+        
+        if(err < 0) continue;
+        // read something
+        
+        if(FD_ISSET(thefd, &read_flags))
+        { //Socket ready for reading
+            FD_CLR(thefd, &read_flags);
+            memset(&inbuff,0,sizeof(inbuff));
+            if (read(thefd, inbuff, sizeof(inbuff)-1) <= 0)
+            {
+                close(thefd);
+                diewithError("Socket READ Bug socket closed");
+                break;
+            }
+            
+            
+            previous.append(string(inbuff));
+            
+            if(previous[previous.length()-1]!='\b'){
+                continue;
+            }
+            
+            deal_with_reading(previous);
+        }
+        // write something
+        if(FD_ISSET(thefd, &write_flags))
+        { //Socket ready for writing
+            FD_CLR(thefd, &write_flags);
+            temp.clear();
+            pthread_mutex_lock( &mutex_phy_send);
+            temp=phy_send_q.front();
+            pthread_mutex_unlock( &mutex_phy_send);
+            /**/
+            temp=frame_to_bit(temp);
+            
+            strcpy(outbuff,temp.c_str());
+            
+            trouble(outbuff);// introduce trouble
+            write(thefd,outbuff,strlen(outbuff));
+            
+            memset(&outbuff,0,sizeof(outbuff));
+            
+            pthread_mutex_lock( &mutex_phy_send );
+            phy_send_q.pop();
+            pthread_mutex_unlock( &mutex_phy_send );
+            
+            
+        }
+        
+        
+    }
+    
+}
+

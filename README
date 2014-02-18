@@ -1,0 +1,52 @@
+CS513
+Spring 2013
+Team 5
+MININET Project
+
+--- Team members ---
+	Dongqing Xiao
+	Anh Tuan Pham
+	Annies Ductan
+
+--- Commands---
+	- login <username>::try to log <username> to server
+	- list::list all the available users in server
+	- send <username> <message>::send <message> to <username>
+	- sendall <message>::broadcast <message> to all other online users
+	- quit::terminate the client
+	- upload <client filename>::upload <client filename> to server
+	- download <server filename>::download <server filename> from server
+
+--- Client contents ---
+	- header.h::header file
+	- client.cpp::application layer code for client
+	- dl.cpp::data link layer code for client
+	- phy.cpp::physical layer code for client
+	- Makefile::Compile the client code.
+
+--- Server contents ---
+	- header.h::header file
+	- server.cpp::application layer code for server
+	- dl.cpp::data link layer code for server
+	- phy.cpp::physical layer code for server
+	- Makefile::Compile the server code.
+
+--- Compiling ---
+	On client or server directory 
+	- To compile, simply type: `make` or `make all`
+	- To clean the project: `make clean`
+
+--- Executing ---
+	Server starts first. It requires no argument and listen to port 5000
+	./server
+	Clients can start after that, connect to server's port 5000
+	./client <server name> <error probability>
+	Example, a client connect to CCC machine with error probability of 0%:
+	./client cccwork4.wpi.edu 0
+
+--- Known issues ---
+	- Download and upload commands work well with text file but it doesn’t work with non-text file. This problem is caused by our design issue: 
+	we are using a string data type to pass packets between layers. In testing we found in C++ (string) will ignore everything after '\0'. At the time we discovered this issue, we ran out of time to fix the issue.
+
+	- Error introduction does not entirely work. With over 80% error chance。we cannot transfer big files, but transferring small files and other commands works well.
+	- The server is supposed to support up to 20 clients, but we only test with 3 concurrent clients.
